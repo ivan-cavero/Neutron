@@ -492,11 +492,24 @@ Worldgen 1:1 vs vanilla **26.2**. Meter = `region_parity` + `PARITY_SCAN=1`
 | Measurement | Value |
 | **GATE6 full 30-seed ratchet** (iceberg extension 505a2ad) | mean **99.4493%**, 15/30 ≥99.5%, 28/30 ≥99.0%, **net −1,070,399 vs gate5, 0 regressions** |
 | gate6 movers | 55555 −903,023 (99.5636%) · 123 −167,376 (99.4790%); all other 28 seeds bit-identical |
-| seed **424242** (primary) | **98.9651%** / 534,087 (snow/freeze fix, −353) |
+| seed **424242** (primary) | **98.9693%** / 531,943 (snow + noise_threshold fixes) |
 | seed **456** | **98.9188%** / 560,137 (stream-desync symptoms only) |
 | seed **777** | **99.2797%** / 373,153 |
 | seed **55555** | **99.5636%** / 225,209 (berg gap closed) |
 | best seed **44444** | **99.8575%** / 73,409 |
+
+**SURFACE-RULE noise_threshold SAMPLING FIXED (16 Sep)**: vanilla
+`NoiseThresholdConditionSource` samples 2D noises at `(blockX, 0.0, blockZ)`
+and 3D ones at `(blockX, blockY, blockZ)` (SurfaceRules.java:415-436,
+592-622). The port sampled **3D for everything except a hard-coded name
+allowlist**, so every 2D threshold outside that list read the wrong band —
+`powder_snow` (is_3d absent → false) made the snowy_slopes branch fall
+through to `snow_block`, which then blocked motion and shifted the
+freeze_top_layer column up one cell. Fix: parse `is_3d` from the JSON and
+sample y=0 unless it is true. Witness (144,84,-108) seed 424242: raw noise
+0.4742 at y=0 (in [0.35,0.6]) vs 0.6087 at y=84 (out) — column now matches
+the ref y81-84 powder_snow exactly. 2 regression tests (band witness +
+"only sulfur_cave_gradient is 3D" over the parsed datapack rule).
 
 **SNOW FAMILY FIXED (16 Sep)**: `SnowAndFreezeFeature` (freeze_top_layer)
 placed NO snow: `biome_climate` read `biome/*` from a never-populated
@@ -508,10 +521,11 @@ seaLevel+17) + the FROZEN modifier, place `minecraft:snow` (new
 cell (was top+0 off-by-one), and apply `SnowLayerBlock.canSurvive` tags.
 Also un-conflated `BlockId::Snow` (=snow_block, solid/motion) from the
 layer across `blocks_motion`, carvers, decorators, multiface, and iceberg
-carve. Snow writer now exists: 424242 −1,231 missing-snow cells; net
-**534,440 → 534,087 (−353)**, `cargo test` noise-green; windows 12345
-99.39%, 777 99.78% bit-identical vs baseline. 3 regression tests vs real
-jar ground truth (`ProbeSnowTemp`/`ProbeSnowMotion`).
+carve. 3 regression tests vs real jar ground truth.
+
+Combined: **534,440 → 531,943 (−2,497)**; powder-snow family 1,299 → 4
+cells; freeze_top_layer writer 431 → 323. Ratchet: 12345 window 99.39% and
+777 window 99.78% — bit-identical to their pre-fix baselines.
 
 ## Closed (git log has full evidence)
 

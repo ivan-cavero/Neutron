@@ -457,6 +457,9 @@ enum Condition {
         noise: String,
         min: f64,
         max: f64,
+        /// `is_3d` from the JSON (default false). Vanilla
+        /// `NoiseThresholdConditionSource` samples 2D (y=0) unless 3D.
+        is_3d: bool,
     },
     Not(Box<Condition>),
     Hole,
@@ -587,12 +590,18 @@ impl Condition {
                 ctx.y + stone_addon
                     >= ctx.water_height + *offset + ctx.surface_depth * *surface_depth_multiplier
             }
-            Condition::NoiseThreshold { noise, min, max } => {
-                // Most surface noises are 2D (y=0); a few are 3D (calcite, gravel, …).
-                let y_sample = match noise.as_str() {
-                    "surface" | "surface_secondary" | "surface_swamp" | "badlands_surface" => 0.0,
-                    _ => ctx.y as f64,
-                };
+            Condition::NoiseThreshold {
+                noise,
+                min,
+                max,
+                is_3d,
+            } => {
+                // Vanilla NoiseThresholdConditionSource.getNoiseSampler:
+                // 2D samples at (blockX, 0.0, blockZ), 3D at (blockX, blockY,
+                // blockZ). The old fixed allowlist sampled everything else 3D,
+                // so `powder_snow` (2D in the datapack) read the wrong band
+                // and the snowy_slopes branch fell through to snow_block.
+                let y_sample = if *is_3d { ctx.y as f64 } else { 0.0 };
                 let v = ctx
                     .noises
                     .get(noise.as_str())
@@ -746,6 +755,7 @@ fn parse_condition(v: &Value) -> Condition {
                 noise,
                 min: v["min_threshold"].as_f64().unwrap_or(f64::NEG_INFINITY),
                 max: v["max_threshold"].as_f64().unwrap_or(f64::INFINITY),
+                is_3d: v["is_3d"].as_bool().unwrap_or(false),
             }
         }
         "not" => Condition::Not(Box::new(parse_condition(&v["invert"]))),
@@ -2172,5 +2182,113 @@ mod my_tree_census_424242 {
             eprintln!("MY-TREE-COUNT chunk ({cx},{cz}) dark_oak_logs = {log_count}");
         }
         panic!("CENSUS-DONE");
+    }
+}
+
+#[cfg(test)]
+mod noise_threshold_2d_3d {
+    use super::*;
+
+    /// `NoiseThresholdConditionSource.is_3d` must decide the sample Y:
+    /// 2D samples `(blockX, 0.0, blockZ)`, 3D samples `(blockX, blockY,
+    /// blockZ)` (SurfaceRules.java:415-436, 592-622).
+    ///
+    /// Regression guard: the old code sampled 3D for every noise except a
+    /// fixed name allowlist, so the 2D `powder_snow` threshold in the
+    /// snowy_slopes branch read the wrong band and the branch fell through to
+    /// snow_block — witness (144,84,-108) seed 424242, where the raw noise is
+    /// 0.4742 at y=0 (inside [0.35,0.6]) but 0.6087 at y=84 (outside).
+    #[test]
+    fn noise_threshold_uses_is_3d_flag() {
+        let reg = crate::density::DensityRegistry::build();
+        let st = crate::worldgen::WorldgenState::overworld(424242);
+        let _ = &reg;
+        let noises = st.noises.noises();
+        let noise = noises.get("powder_snow").expect("powder_snow noise");
+
+        // Same band the datapack uses for the snowy_slopes powder-snow rule.
+        let cond_2d = Condition::NoiseThreshold {
+            noise: "powder_snow".into(),
+            min: 0.35,
+            max: 0.6,
+            is_3d: false,
+        };
+        let cond_3d = Condition::NoiseThreshold {
+            noise: "powder_snow".into(),
+            min: 0.35,
+            max: 0.6,
+            is_3d: true,
+        };
+        let mut ctx = RuleContext {
+            x: 144,
+            y: 84,
+            z: -108,
+            stone_depth_above: 1,
+            stone_depth_below: 1,
+            water_height: i32::MIN,
+            surface_depth: 3,
+            surface_secondary: 0.0,
+            min_surface_level: 60,
+            biome: biome_id::SNOWY_SLOPES,
+            steep: false,
+            hole: false,
+            noises,
+            main_rng: crate::positional::PositionalRandomFactory::new(0, 0),
+            sea_level: st.sea_level,
+        };
+
+        // The 3D sample is outside the band at this Y; the 2D sample is inside.
+        let v2 = noise.get_value(144.0, 0.0, -108.0);
+        let v3 = noise.get_value(144.0, 84.0, -108.0);
+        assert!(
+            (0.35..=0.6).contains(&v2) && !(0.35..=0.6).contains(&v3),
+            "witness noise values moved: 2d={v2}, 3d={v3} — re-pick the cell"
+        );
+        assert!(cond_2d.test(&mut ctx), "2D threshold must sample y=0");
+        assert!(!cond_3d.test(&mut ctx), "3D threshold must sample the block y");
+    }
+
+    /// The datapack marks exactly one noise 3D (`sulfur_cave_gradient`); every
+    /// other threshold is 2D. A future data refresh that flips one must show
+    /// up here rather than silently mis-sampling.
+    #[test]
+    fn overworld_noise_thresholds_match_datapack_is_3d() {
+        let rule = overworld_rule();
+        let mut seen: Vec<(String, bool)> = Vec::new();
+        collect_noise_thresholds(&rule, &mut seen);
+        assert!(!seen.is_empty(), "no noise_threshold conditions parsed");
+        for (name, is_3d) in &seen {
+            if name == "sulfur_cave_gradient" {
+                assert!(is_3d, "sulfur_cave_gradient is is_3d=true in 26.2");
+            } else {
+                assert!(
+                    !is_3d,
+                    "{name} must be 2D (y=0) — only sulfur_cave_gradient is 3D in 26.2"
+                );
+            }
+        }
+    }
+
+    fn collect_noise_thresholds(rule: &Rule, out: &mut Vec<(String, bool)>) {
+        match rule {
+            Rule::Block(_) | Rule::Bandlands => {}
+            Rule::Sequence(list) => {
+                for r in list {
+                    collect_noise_thresholds(r, out);
+                }
+            }
+            Rule::Condition { cond, then } => {
+                collect_condition(cond, out);
+                collect_noise_thresholds(then, out);
+            }
+        }
+    }
+
+    fn collect_condition(cond: &Condition, out: &mut Vec<(String, bool)>) {
+        match cond {
+            Condition::NoiseThreshold { noise, is_3d, .. } => out.push((noise.clone(), *is_3d)),
+            Condition::Not(inner) => collect_condition(inner, out),
+            _ => {}
+        }
     }
 }
