@@ -390,7 +390,9 @@ fn carve_iceberg(
                         region.set(x + xo, origin_y + y_off, z + zo, BlockId::Water);
                     } else {
                         region.set(x + xo, origin_y + y_off, z + zo, BlockId::Air);
-                        if region.get(x + xo, origin_y + y_off + 1, z + zo) == BlockId::Snow {
+                        // removeFloatingSnowLayer: clears a floating
+                        // `minecraft:snow` LAYER (not snow_block) above.
+                        if region.get(x + xo, origin_y + y_off + 1, z + zo) == BlockId::SnowLayer {
                             region.set(x + xo, origin_y + y_off + 1, z + zo, BlockId::Air);
                         }
                     }

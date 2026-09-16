@@ -308,7 +308,7 @@ fn is_solid_render(b: BlockId) -> bool {
             | BlockId::CaveAir
             | BlockId::Water
             | BlockId::Lava
-            | BlockId::Snow // layer: canOcclude false
+            | BlockId::SnowLayer // layer: canOcclude false (snow_block IS solid render)
             | BlockId::OakLeaves
             | BlockId::DarkOakLeaves
             | BlockId::PaleOakLeaves
@@ -363,7 +363,7 @@ fn is_motion_blocking_no_leaves(b: BlockId) -> bool {
             | BlockId::CaveVines
             | BlockId::CaveVinesPlant
             | BlockId::HangingRoots
-            | BlockId::Snow // layer overrides blocksMotion() to false
+            | BlockId::SnowLayer // layer overrides blocksMotion() to false
     )
 }
 

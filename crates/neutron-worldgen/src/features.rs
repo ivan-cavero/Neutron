@@ -847,7 +847,7 @@ fn is_solid_predicate(b: BlockId) -> bool {
             | BlockId::Lava
             | BlockId::ShortGrass
             | BlockId::LeafLitter
-            | BlockId::Snow
+            | BlockId::SnowLayer
     )
 }
 
@@ -936,7 +936,7 @@ fn magma_visible_from_outside(b: BlockId) -> bool {
             | BlockId::LeafLitter
             | BlockId::OakLeaves
             | BlockId::DarkOakLeaves
-            | BlockId::Snow
+            | BlockId::SnowLayer
             | BlockId::SculkVein
     )
 }

@@ -886,6 +886,7 @@ fn can_replace(b: BlockId) -> bool {
             | BlockId::Calcite
             | BlockId::PackedIce
             | BlockId::Snow
+            | BlockId::SnowLayer
             | BlockId::PowderSnow
             | BlockId::Clay
             | BlockId::Terracotta

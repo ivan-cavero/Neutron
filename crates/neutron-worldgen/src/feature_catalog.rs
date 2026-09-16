@@ -291,45 +291,55 @@ fn parse_biome_features(text: &str) -> Option<Vec<Vec<String>>> {
     Some(steps)
 }
 
-/// Biome climate attributes from the embedded biome JSON
-/// (`Biome.climateSettings`): `(temperature, has_precipitation)`.
+/// Biome climate attributes from the biome JSON
+/// (`Biome.climateSettings`): `(temperature, has_precipitation, frozen)`.
 ///
-/// ponytail: the FROZEN `temperature_modifier` and the >snow-line
-/// TEMPERATURE_NOISE adjustment are not applied (needs a PerlinSimplexNoise
-/// port); matters only in frozen oceans / above y=80. Upgrade path: port
-/// `PerlinSimplexNoise` + `Biome.getHeightAdjustedTemperature`.
-pub fn biome_climate(biome: &str) -> (f32, bool) {
-    static CACHE: OnceLock<HashMap<String, (f32, bool)>> = OnceLock::new();
-    CACHE
-        .get_or_init(|| {
+/// `frozen` is `temperature_modifier == "frozen"` — the modifier itself is
+/// applied per-position by the caller (`Biome.getHeightAdjustedTemperature`,
+/// see `feature_ports::simple`), because it depends on the block coords.
+///
+/// Source: the biome JSONs under `src/data/worldgen/biome/` (the same
+/// directory `biome_features_cache` reads). The old embedded-path lookup
+/// never matched — no `biome/*` entry exists in `datapack_data`, so every
+/// biome silently took the `(0.5, true)` default. That made
+/// `warmEnoughToRain` true everywhere and suppressed every
+/// `SnowAndFreezeFeature` snow placement on cold biomes (2,182 cells on
+/// seed 424242; jagged_peaks/frozen_peaks/grove all read 0.5 instead of
+/// their real negative temperatures).
+pub fn biome_climate(biome: &str) -> (f32, bool, bool) {
+    static CACHE: std::sync::LazyLock<HashMap<String, (f32, bool, bool)>> =
+        std::sync::LazyLock::new(|| {
             let mut m = HashMap::new();
-            for path in crate::datapack_data::EMBEDDED_PATHS {
-                let Some(rest) = path.strip_prefix("biome/") else {
-                    continue;
-                };
-                if !rest.ends_with(".json") {
+            let dir = datapack_fs::worldgen_path("biome");
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|x| x.to_str()) != Some("json") {
                     continue;
                 }
-                let Some(json) = crate::datapack_data::datapack_json(path) else {
+                let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
                     continue;
                 };
-                let Ok(v) = serde_json::from_str::<Value>(json) else {
+                let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
-                let name = rest.trim_end_matches(".json").to_string();
+                let Ok(v) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
                 m.insert(
-                    name,
+                    name.to_string(),
                     (
                         v["temperature"].as_f64().unwrap_or(0.5) as f32,
                         v["has_precipitation"].as_bool().unwrap_or(true),
+                        v["temperature_modifier"].as_str() == Some("frozen"),
                     ),
                 );
             }
             m
-        })
+        });
+    CACHE
         .get(strip_mc(biome))
         .copied()
-        .unwrap_or((0.5, true))
+        .unwrap_or((0.5, true, false))
 }
 
 

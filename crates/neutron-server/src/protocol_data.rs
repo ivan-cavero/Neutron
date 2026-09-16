@@ -280,6 +280,7 @@ pub fn block_state_id(internal: u16) -> i32 {
         306 => 12899,  // light_blue_carpet
         307 => 2296,  // light_blue_wool
         308 => 23115,  // white_candle
+        312 => 6919,   // snow (layers=1)
         _ => 1,       // unknown -> stone
     }
 }

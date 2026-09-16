@@ -492,11 +492,26 @@ Worldgen 1:1 vs vanilla **26.2**. Meter = `region_parity` + `PARITY_SCAN=1`
 | Measurement | Value |
 | **GATE6 full 30-seed ratchet** (iceberg extension 505a2ad) | mean **99.4493%**, 15/30 ≥99.5%, 28/30 ≥99.0%, **net −1,070,399 vs gate5, 0 regressions** |
 | gate6 movers | 55555 −903,023 (99.5636%) · 123 −167,376 (99.4790%); all other 28 seeds bit-identical |
-| seed **424242** (primary) | **98.9467%** / 543,605 |
+| seed **424242** (primary) | **98.9651%** / 534,087 (snow/freeze fix, −353) |
 | seed **456** | **98.9188%** / 560,137 (stream-desync symptoms only) |
 | seed **777** | **99.2797%** / 373,153 |
 | seed **55555** | **99.5636%** / 225,209 (berg gap closed) |
 | best seed **44444** | **99.8575%** / 73,409 |
+
+**SNOW FAMILY FIXED (16 Sep)**: `SnowAndFreezeFeature` (freeze_top_layer)
+placed NO snow: `biome_climate` read `biome/*` from a never-populated
+embedded list → every biome fell back to `(0.5, true)` → `warmEnoughToRain`
+was always true. Fix: read the real biome JSONs (temp/precipitation/frozen
+modifier), apply `getHeightAdjustedTemperature` (TEMPERATURE_NOISE above
+seaLevel+17) + the FROZEN modifier, place `minecraft:snow` (new
+`BlockId::SnowLayer`, protocol 6919) at the first-available MOTION_BLOCKING
+cell (was top+0 off-by-one), and apply `SnowLayerBlock.canSurvive` tags.
+Also un-conflated `BlockId::Snow` (=snow_block, solid/motion) from the
+layer across `blocks_motion`, carvers, decorators, multiface, and iceberg
+carve. Snow writer now exists: 424242 −1,231 missing-snow cells; net
+**534,440 → 534,087 (−353)**, `cargo test` noise-green; windows 12345
+99.39%, 777 99.78% bit-identical vs baseline. 3 regression tests vs real
+jar ground truth (`ProbeSnowTemp`/`ProbeSnowMotion`).
 
 ## Closed (git log has full evidence)
 

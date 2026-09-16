@@ -316,6 +316,13 @@ pub enum BlockId {
     WallTorch = 309,
     Cobweb = 310,
     Rail = 311,
+    /// `minecraft:snow` — the snow LAYER (layers=1), distinct from
+    /// [`BlockId::Snow`] (`minecraft:snow_block`). Written by
+    /// `SnowAndFreezeFeature` (freeze_top_layer) and `pile_snow`.
+    /// Vanilla semantics differ: the layer is `!isAir()` (counts for
+    /// WORLD_SURFACE) but `blocksMotion() == false` (does NOT count for
+    /// OCEAN_FLOOR / MOTION_BLOCKING) and has no face-full collision shape.
+    SnowLayer = 312,
 }
 
 impl BlockId {
@@ -610,6 +617,7 @@ impl BlockId {
             309 => Some(Self::WallTorch),
             310 => Some(Self::Cobweb),
             311 => Some(Self::Rail),
+            312 => Some(Self::SnowLayer),
             _ => None,
         }
     }
@@ -826,6 +834,7 @@ impl BlockId {
             Self::RedSandstone => "minecraft:red_sandstone",
             Self::Ice => "minecraft:ice",
             Self::Snow => "minecraft:snow_block",
+            Self::SnowLayer => "minecraft:snow",
             Self::Clay => "minecraft:clay",
             Self::PackedIce => "minecraft:packed_ice",
             Self::PowderSnow => "minecraft:powder_snow",
@@ -954,7 +963,8 @@ impl BlockId {
             "sandstone" => Some(Self::Sandstone),
             "red_sandstone" => Some(Self::RedSandstone),
             "ice" => Some(Self::Ice),
-            "snow_block" | "snow" => Some(Self::Snow),
+            "snow_block" => Some(Self::Snow),
+            "snow" => Some(Self::SnowLayer),
             "clay" => Some(Self::Clay),
             "packed_ice" => Some(Self::PackedIce),
             "powder_snow" => Some(Self::PowderSnow),
@@ -1248,6 +1258,7 @@ pub fn vanilla_name(b: BlockId) -> &'static str {
         BlockId::RedSandstone => "minecraft:red_sandstone",
         BlockId::Ice => "minecraft:ice",
         BlockId::Snow => "minecraft:snow_block",
+        BlockId::SnowLayer => "minecraft:snow",
         BlockId::Clay => "minecraft:clay",
         BlockId::PackedIce => "minecraft:packed_ice",
         BlockId::PowderSnow => "minecraft:powder_snow",

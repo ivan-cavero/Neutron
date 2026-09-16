@@ -23,11 +23,8 @@ const REF_DIRS: &[&str] = &[
 /// keeping the list honest.
 const UNMAPPED_ALLOWLIST: &[&str] = &[
     "minecraft:bubble_column",
-    "minecraft:cobweb",
     "minecraft:iron_chain",
-    "minecraft:rail",
     "minecraft:suspicious_gravel",
-    "minecraft:wall_torch",
 ];
 
 fn workspace_root() -> std::path::PathBuf {

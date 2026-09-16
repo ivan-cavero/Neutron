@@ -315,6 +315,23 @@ fn frozen_ocean_extension(
     }
 }
 
+/// `Biome.FROZEN_TEMPERATURE_NOISE` (Biome.java:62): seed 3456, octaves
+/// `[-2, -1, 0]`.
+pub(crate) fn frozen_temperature_noise() -> &'static crate::perlin_simplex::PerlinSimplexNoise {
+    static N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
+        std::sync::LazyLock::new(|| {
+            crate::perlin_simplex::PerlinSimplexNoise::new(3456, &[-2, -1, 0])
+        });
+    &N
+}
+
+/// `Biome.BIOME_INFO_NOISE` (Biome.java:66): seed 2345, octave `[0]`.
+pub(crate) fn biome_info_noise() -> &'static crate::perlin_simplex::PerlinSimplexNoise {
+    static N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
+        std::sync::LazyLock::new(|| crate::perlin_simplex::PerlinSimplexNoise::new(2345, &[0]));
+    &N
+}
+
 /// `Biome.shouldMeltFrozenOceanIcebergSlightly` = getTemperature > 0.1.
 /// getTemperature = getHeightAdjustedTemperature (cache elided — pure fn):
 ///   adjusted = FROZEN modifier (see below) applied to base temperature
@@ -338,29 +355,20 @@ fn surface_should_melt_frozen_iceberg_slightly(
         biome_id::DEEP_FROZEN_OCEAN => 0.5f32,
         _ => 0.0f32,
     };
-    static FROZEN_N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
-        std::sync::LazyLock::new(|| crate::perlin_simplex::PerlinSimplexNoise::new(3456, &[-2, -1, 0]));
-    static BIOME_INFO_N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
-        std::sync::LazyLock::new(|| crate::perlin_simplex::PerlinSimplexNoise::new(2345, &[0]));
-    static TEMPERATURE_N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
-        std::sync::LazyLock::new(|| crate::perlin_simplex::PerlinSimplexNoise::new(1234, &[0]));
-
     let mut adjusted = base;
     // FROZEN modifier (both frozen ocean biomes use it)
-    let large = FROZEN_N.get_value(x as f64 * 0.05, z as f64 * 0.05) * 7.0;
-    let edge = BIOME_INFO_N.get_value(x as f64 * 0.2, z as f64 * 0.2);
+    let large = frozen_temperature_noise().get_value(x as f64 * 0.05, z as f64 * 0.05) * 7.0;
+    let edge = biome_info_noise().get_value(x as f64 * 0.2, z as f64 * 0.2);
     if large + edge < 0.3 {
-        let small = BIOME_INFO_N.get_value(x as f64 * 0.09, z as f64 * 0.09);
+        let small = biome_info_noise().get_value(x as f64 * 0.09, z as f64 * 0.09);
         if small < 0.8 {
             adjusted = 0.2;
         }
     }
     // getHeightAdjustedTemperature uses the BLOCK y; the iceberg check samples at
     // y = seaLevel (blockPos.set(x, seaLevel, z)), so y = seaLevel <= snowLevel —
-    // the height adjustment (which would need TEMPERATURE_NOISE, seed 1234)
-    // never applies here.
+    // the height adjustment (TEMPERATURE_NOISE, seed 1234) never applies here.
     let _ = sea_level;
-    let _ = TEMPERATURE_N;
     adjusted > 0.1
 }
 

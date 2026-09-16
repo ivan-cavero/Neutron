@@ -230,7 +230,7 @@ impl MultifaceSpreader {
                 | BlockId::Water
                 | BlockId::SculkVein
                 | BlockId::ShortGrass
-                | BlockId::Snow
+                | BlockId::SnowLayer
                 | BlockId::LeafLitter
         )
     }
@@ -282,7 +282,7 @@ impl MultifaceSpreader {
             BlockId::Air
                 | BlockId::Water
                 | BlockId::ShortGrass
-                | BlockId::Snow
+                | BlockId::SnowLayer
                 | BlockId::LeafLitter
         ) {
             region.set(sp.x, sp.y, sp.z, BlockId::SculkVein);
@@ -460,7 +460,7 @@ fn is_sturdy_attach(b: BlockId) -> bool {
             | BlockId::DarkOakLeaves
             | BlockId::ShortGrass
             | BlockId::LeafLitter
-            | BlockId::Snow
+            | BlockId::SnowLayer
             | BlockId::PowderSnow
     )
 }
@@ -485,7 +485,7 @@ pub(crate) fn is_face_sturdy_full(b: BlockId) -> bool {
             | BlockId::DarkOakLeaves
             | BlockId::ShortGrass
             | BlockId::LeafLitter
-            | BlockId::Snow
+            | BlockId::SnowLayer
             | BlockId::PowderSnow
     )
 }

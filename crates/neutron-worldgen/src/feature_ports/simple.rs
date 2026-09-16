@@ -93,13 +93,19 @@ pub(crate) fn place_desert_well(
 // freeze_top_layer
 // ---------------------------------------------------------------------------
 
-/// `SnowAndFreezeFeature.place` (26.2): 16×16 MOTION_BLOCKING columns; ice
-/// below where `!warmEnoughToRain` on the biome at the TOP block, snow +
-/// snowy-grass when `shouldSnow`.
+/// `SnowAndFreezeFeature.place` (26.2): 16×16 MOTION_BLOCKING columns.
 ///
-/// ponytail: `Biome.getHeightAdjustedTemperature` (>snow-line noise term) and
-/// the FROZEN temperature modifier are not applied (needs PerlinSimplexNoise);
-/// exact below y=81 outside frozen oceans.
+/// Vanilla reads `level.getHeight(MOTION_BLOCKING, x, z)` = the FIRST
+/// AVAILABLE y (the air cell above the top motion-blocking block) and probes
+/// `topPos` / `topPos.below()`. [`heightmap_top`] returns the topmost opaque
+/// y instead, so the column position is `top + 1`.
+///
+/// Both predicates route through `Biome.warmEnoughToRain` →
+/// `getHeightAdjustedTemperature` (Biome.java:112-177), which applies the
+/// biome's `temperature_modifier` and, ABOVE `seaLevel + 17` (the snow line),
+/// subtracts a TEMPERATURE_NOISE term. Skipping that adjustment placed no
+/// snow at all on the high cold biomes (jagged_peaks at y≈98-108 adjusts to
+/// −0.7, well below the 0.15 rain threshold).
 pub(crate) fn place_freeze_top_layer(
     region: &mut RegionBuf,
     state: &WorldgenState,
@@ -112,46 +118,142 @@ pub(crate) fn place_freeze_top_layer(
         for dz in 0..16 {
             let bx = x + dx;
             let bz = z + dz;
-            let Some(sy) = heightmap_top(region, bx, bz, HeightmapKind::MotionBlocking) else {
+            let Some(top_y) = heightmap_top(region, bx, bz, HeightmapKind::MotionBlocking) else {
                 continue;
             };
+            let sy = top_y + 1;
             // Vanilla samples the biome AT topPos (level.getBiome(topPos)).
             let bid = crate::biome_manager::biome_id_at_block(state, bx, sy, bz);
             let name = crate::feature_dispatch::biome_id_to_name(bid);
-            let (temperature, has_precip) = crate::feature_catalog::biome_climate(name);
-            let warm_enough = temperature >= 0.15;
-            // shouldFreeze(level, belowPos, false): water + !warmEnoughToRain
-            // (block light < 10 is trivially true during worldgen).
+
             let below = sy - 1;
-            if !warm_enough && region.get(bx, below, bz) == BlockId::Water {
+            // Biome.shouldFreeze(level, belowPos, false): water below and not
+            // warm enough to rain. Block light < 10 is trivially true here.
+            if !biome_warm_enough(state, bx, below, bz)
+                && region.get(bx, below, bz) == BlockId::Water
+            {
                 region.set(bx, below, bz, BlockId::Ice);
             }
 
-            // shouldSnow(topPos): precipitation==SNOW && coldEnoughToSnow &&
-            // (air | snow) && SNOW.canSurvive (solid ground below).
+            // Biome.shouldSnow(topPos): precipitation==SNOW (has precipitation
+            // && !warmEnoughToRain), (air | snow) on top, and
+            // SnowLayerBlock.canSurvive (below must support it).
             let top = region.get(bx, sy, bz);
-            let below_block = region.get(bx, below, bz);
-            let ground = !below_block.is_air()
-                && below_block != BlockId::Water
-                && below_block != BlockId::Lava;
-            if has_precip
-                && !warm_enough
-                && (top.is_air() || top == BlockId::Snow)
-                && ground
+            if !biome_warm_enough(state, bx, sy, bz)
+                && biome_has_precipitation(name)
+                && (top.is_air() || top == BlockId::SnowLayer)
+                && snow_layer_can_survive(region.get(bx, below, bz))
             {
-                region.set(bx, sy, bz, BlockId::Snow);
+                region.set(bx, sy, bz, BlockId::SnowLayer);
             }
         }
     }
 }
 
-/// `Biome.warmEnoughToRain` (base-temperature form): biome temperature at
-/// `(x,y,z)` >= 0.15.
+/// `SnowLayerBlock.canSurvive` (SnowLayerBlock.java:77-86) for a fresh
+/// (layers=1) snow layer: `cannot_support_snow_layer` → false,
+/// `support_override_snow_layer` → true, else the block below must have a
+/// full collision shape on its UP face.
+///
+/// Both tags verified against 26.2 (`ProbeSnowMotion`): ice/packed_ice/
+/// barrier cannot support; honey_block/soul_sand/mud always can. Every block
+/// in the tags has a distinct `BlockId` except `barrier` and `honey_block`,
+/// which no overworld worldgen path produces (the lake config's "barrier" is
+/// stone), so they need no ids. A snow layer never supports another layer
+/// (its collision shape is EMPTY at layers=1) — `is_face_sturdy_full` already
+/// excludes it.
+fn snow_layer_can_survive(below: BlockId) -> bool {
+    if matches!(below, BlockId::Ice | BlockId::PackedIce) {
+        return false;
+    }
+    if matches!(below, BlockId::SoulSand | BlockId::Mud) {
+        return true;
+    }
+    crate::multiface_spreader::is_face_sturdy_full(below)
+}
+
+fn biome_has_precipitation(name: &str) -> bool {
+    crate::feature_catalog::biome_climate(name).1
+}
+
+/// `TEMPERATURE_NOISE` (Biome.java:62): seed 1234, octave set `[0]`.
+fn temperature_noise() -> &'static crate::perlin_simplex::PerlinSimplexNoise {
+    static N: std::sync::LazyLock<crate::perlin_simplex::PerlinSimplexNoise> =
+        std::sync::LazyLock::new(|| {
+            crate::perlin_simplex::PerlinSimplexNoise::new(1234, &[0])
+        });
+    &N
+}
+
+/// `Biome.getHeightAdjustedTemperature(pos, seaLevel)` (Biome.java:112-121).
+fn height_adjusted_temperature(
+    state: &WorldgenState,
+    name: &str,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> f32 {
+    height_adjusted_temperature_at(name, state.sea_level, x, y, z)
+}
+
+/// Test seam: the snow-line math without a `WorldgenState`.
+#[cfg(test)]
+pub(crate) fn height_adjusted_temperature_for_test(
+    name: &str,
+    sea_level: i32,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> f32 {
+    height_adjusted_temperature_at(name, sea_level, x, y, z)
+}
+
+fn height_adjusted_temperature_at(
+    name: &str,
+    sea_level: i32,
+    x: i32,
+    y: i32,
+    z: i32,
+) -> f32 {
+    let (base, _, frozen) = crate::feature_catalog::biome_climate(name);
+    let adjusted = if frozen {
+        // TemperatureModifier.FROZEN (Biome.java:395-409).
+        let large = crate::surface_rules::frozen_temperature_noise()
+            .get_value(x as f64 * 0.05, z as f64 * 0.05)
+            * 7.0;
+        let edge = crate::surface_rules::biome_info_noise()
+            .get_value(x as f64 * 0.2, z as f64 * 0.2);
+        if large + edge < 0.3 {
+            let small = crate::surface_rules::biome_info_noise()
+                .get_value(x as f64 * 0.09, z as f64 * 0.09);
+            if small < 0.8 {
+                0.2
+            } else {
+                base
+            }
+        } else {
+            base
+        }
+    } else {
+        base
+    };
+    let snow_level = sea_level + 17;
+    if y > snow_level {
+        // Java: float v = (float)(TEMPERATURE_NOISE.getValue(x/8.0F, z/8.0F,
+        // false) * 8.0); then adjustedTemperature - (v + y - snowLevel) * 0.05F
+        // / 40.0F — every step in f32.
+        let v = (temperature_noise().get_value(x as f64 / 8.0, z as f64 / 8.0) * 8.0) as f32;
+        adjusted - (v + (y - snow_level) as f32) * 0.05f32 / 40.0f32
+    } else {
+        adjusted
+    }
+}
+
+/// `Biome.warmEnoughToRain(pos, seaLevel)`: adjusted temperature >= 0.15.
 pub(crate) fn biome_warm_enough(state: &WorldgenState, x: i32, y: i32, z: i32) -> bool {
     let bid = crate::biome_manager::biome_id_at_block(state, x, y, z);
     let name = crate::feature_dispatch::biome_id_to_name(bid);
-    let (temperature, _) = crate::feature_catalog::biome_climate(name);
-    temperature >= 0.15
+    height_adjusted_temperature(state, name, x, y, z) >= 0.15
 }
 
 // ---------------------------------------------------------------------------
@@ -397,4 +499,69 @@ pub(crate) fn place_monster_room(
         }
     }
     region.set(x, y, z, BlockId::Spawner);
+}
+
+#[cfg(test)]
+mod snow_tests {
+    use super::*;
+
+    /// Two-sided check vs `Biome.getHeightAdjustedTemperature` (real 26.2 jar,
+    /// `ProbeSnowTemp`): the snow-line term above `seaLevel + 17` is what makes
+    /// `warmEnoughToRain` false on the high cold biomes. Regression guard for
+    /// the bug where `biome_climate` returned its `(0.5, true)` fallback for
+    /// every biome (no `biome/*` entry in `datapack_data`), so `warm_enough`
+    /// was true everywhere and `freeze_top_layer` placed no snow at all.
+    #[test]
+    fn height_adjusted_temperature_matches_vanilla() {
+        // (biome, x, y, z, vanilla float)
+        let cases: [(&str, i32, i32, i32, f32); 8] = [
+            ("jagged_peaks", 144, 98, 64, -0.7220023),
+            ("jagged_peaks", 150, 100, 64, -0.71830904),
+            ("jagged_peaks", 150, 106, 70, -0.73637086),
+            ("jagged_peaks", 144, 80, 64, -0.7),
+            ("snowy_slopes", 0, 120, 0, -0.35000002),
+            ("grove", 100, 140, 100, -0.27933648),
+            ("frozen_peaks", -200, 130, -200, -0.762238),
+            ("plains", 0, 70, 0, 0.8),
+        ];
+        for (biome, x, y, z, want) in cases {
+            let got = height_adjusted_temperature_for_test(biome, 63, x, y, z);
+            assert!(
+                (got - want).abs() < 1e-6,
+                "{biome} ({x},{y},{z}): adjusted temp = {got}, want {want}"
+            );
+        }
+    }
+
+    /// The raw biome temperature must come from the biome JSON, not a default.
+    #[test]
+    fn biome_climate_reads_real_temperatures() {
+        for (name, want) in [("jagged_peaks", -0.7f32), ("frozen_peaks", -0.7), ("plains", 0.8)] {
+            let (t, precip, _) = crate::feature_catalog::biome_climate(name);
+            assert_eq!(t, want, "{name} temperature");
+            assert!(precip, "{name} has_precipitation");
+        }
+        // frozen_ocean carries the FROZEN temperature modifier.
+        assert!(crate::feature_catalog::biome_climate("frozen_ocean").2);
+        assert!(!crate::feature_catalog::biome_climate("jagged_peaks").2);
+    }
+
+    /// A snow layer is NOT `blocksMotion` and has no face-full shape, so it can
+    /// never support another layer — while snow_block is a full opaque cube.
+    #[test]
+    fn snow_layer_and_snow_block_differ() {
+        use crate::feature_dispatch::predicates::blocks_motion;
+        use crate::surface::BlockId;
+        assert!(!blocks_motion(BlockId::SnowLayer));
+        assert!(blocks_motion(BlockId::Snow));
+        assert!(!snow_layer_can_survive(BlockId::SnowLayer));
+        assert!(snow_layer_can_survive(BlockId::Snow));
+        // cannot_support_snow_layer / support_override_snow_layer.
+        assert!(!snow_layer_can_survive(BlockId::Ice));
+        assert!(!snow_layer_can_survive(BlockId::PackedIce));
+        assert!(snow_layer_can_survive(BlockId::Mud));
+        assert!(snow_layer_can_survive(BlockId::SoulSand));
+        assert!(!snow_layer_can_survive(BlockId::Water));
+        assert!(!snow_layer_can_survive(BlockId::Air));
+    }
 }

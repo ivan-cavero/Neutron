@@ -685,7 +685,7 @@ pub(crate) fn can_be_replaced(b: BlockId) -> bool {
             | BlockId::Vine
             | BlockId::MossCarpet
             | BlockId::GlowLichen
-            | BlockId::Snow
+            | BlockId::SnowLayer
             | BlockId::PowderSnow
     )
 }
