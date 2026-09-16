@@ -877,6 +877,12 @@ pub(crate) fn dispatch_configured(
             // matches vanilla's trace format exactly (s70 selrolls), and the
             // 302 red-vs-brown cells are displaced selector outcomes, not a
             // selector bug.
+            //
+            // NOTE (16 Sep): `ty` here is the CONFIGURED type
+            // ("minecraft:huge_red_mushroom"), which ends in "mushroom", NOT
+            // "red" — `ty.ends_with("red")` was always false, so every red
+            // attempt placed a brown cap (my red writes: ZERO cells; vanilla
+            // places ~98 red caps on 424242). Match on the full id instead.
             crate::feature_dispatch::place_huge_mushroom(
                 rng,
                 region,
@@ -884,7 +890,7 @@ pub(crate) fn dispatch_configured(
                 y,
                 z,
                 cfg,
-                ty.ends_with("red"),
+                ty == "minecraft:huge_red_mushroom",
             );
         }
         "minecraft:tree" => {

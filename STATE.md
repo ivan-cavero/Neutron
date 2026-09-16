@@ -492,7 +492,7 @@ Worldgen 1:1 vs vanilla **26.2**. Meter = `region_parity` + `PARITY_SCAN=1`
 | Measurement | Value |
 | **GATE6 full 30-seed ratchet** (iceberg extension 505a2ad) | mean **99.4493%**, 15/30 ≥99.5%, 28/30 ≥99.0%, **net −1,070,399 vs gate5, 0 regressions** |
 | gate6 movers | 55555 −903,023 (99.5636%) · 123 −167,376 (99.4790%); all other 28 seeds bit-identical |
-| seed **424242** (primary) | **98.9704%** / 531,387 (snow + noise_threshold + OFWG fixes) |
+| seed **424242** (primary) | **98.9864%** / 523,139 (snow + noise + OFWG + mushroom fixes) |
 | seed **456** | **98.9188%** / 560,137 (stream-desync symptoms only) |
 | seed **777** | **99.2797%** / 373,153 |
 | seed **55555** | **99.5636%** / 225,209 (berg gap closed) |
@@ -537,12 +537,19 @@ matches. A live-read variant was MEASURED and REVERTED (531,943 → 638,330,
 earlier origins' spillover move later origins' gates — the frozen snapshot
 is the correct semantics.
 
-Combined: **534,440 → 531,387 (−3,053)**; powder-snow family 1,299 → 4
-cells; sand→dirt 419 → 17; freeze_top_layer writer 431 → 323. Ratchet: 12345
-window 99.39% bit-identical to baseline; 777 window 99.77% vs 99.78% baseline
-(one chunk −49 cells of deterministic coal-ore blob displacement, offset by
-+76 fixed cells elsewhere in the same chunk — the ore gate now reads the
-frozen post-carver map, see below).
+**RED MUSHROOMS NEVER PLACED (16 Sep)**: `ty.ends_with("red")` on the
+configured type `"minecraft:huge_red_mushroom"` is always false (it ends in
+"mushroom"), so every red-mushroom selector win placed a BROWN cap — my red
+writes were ZERO cells while vanilla places ~98 red caps on 424242. One-line
+fix: match the full id. Chunk (-2,6): red=0/brown=32 → red=34/brown=11.
+Full scan **531,387 → 523,139 (−8,248)**; the fix also healed the
+dark_oak/leaf-litter cascade around the corrected caps (red-vs-brown 302→12,
+brown-over-air 1,558→509). The s74 "displaced selector outcomes" verdict
+stands for the small remainder (brown-vs-red 11 + red-vs-brown 12 cells).
+
+Combined: **534,440 → 523,139 (−11,301)**. Ratchet: 12345 window 99.39%
+bit-identical to baseline; 777 window 99.77% vs 99.78% (same −49-cell
+deterministic coal-ore displacement seen in the OFWG iteration).
 
 ## Closed (git log has full evidence)
 
