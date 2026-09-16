@@ -684,25 +684,27 @@ fn biome_gate_ok(
     }
 }
 
-/// OCEAN_FLOOR_WG `Chunk.getHeight` = first available = stored solid Y + 1.
-/// Heightmaps in `RegionBuf` are post-surface / pre-carver (WG usage).
+/// `Chunk.getHeight(OCEAN_FLOOR_WG, x, z)` = first available y = the topmost
+/// `blocksMotion` block + 1 (`Heightmap.Types.OCEAN_FLOOR_WG` predicate is
+/// `BlockState.blocksMotion`; `getFirstAvailable` returns `stored + minY`).
+///
+/// Reads the frozen post-carver snapshot (`RegionBuf::ocean_floor_frozen`),
+/// taken at the CARVERS→FEATURES transition before decoration writes.
+/// A live-read variant was MEASURED and REVERTED: the s73 experiment showed a
+/// live scan beating the frozen snapshot for the tree/lush windows, but a
+/// full-scan A/B of a live OCEAN_FLOOR map regressed 531,943 → 638,330
+/// (+106k). The live map's interaction with origin-order writes is not
+/// vanilla's: vanilla's heightmaps are per-chunk (each chunk's own map is
+/// updated by writes to that chunk), while a shared live region map lets
+/// earlier origins' spillover move later origins' gates.
+/// Witness: seed 424242 column (-194,-163) — ref sand y58-61, was dirt (the
+/// heightmaps-plane predicate counts powder_snow as the column top).
 fn ocean_floor_wg_first_available(region: &RegionBuf, x: i32, z: i32) -> Option<i32> {
-    let lx = x - region.origin_x;
-    let lz = z - region.origin_z;
-    if lx < 0 || lz < 0 || lx >= region.side || lz >= region.side {
+    let top = region.ocean_floor_frozen_at(x, z)?;
+    if top <= WORLD_BOTTOM as i16 {
         return None;
     }
-    let cxl = lx / 16;
-    let czl = lz / 16;
-    let hx = (lx % 16) as usize;
-    let hz = (lz % 16) as usize;
-    let hi = (czl * region.chunks + cxl) as usize;
-    let hm = region.heightmaps.get(hi)?;
-    let solid_y = hm[hz * 16 + hx] as i32;
-    if solid_y <= WORLD_BOTTOM {
-        return None;
-    }
-    Some(solid_y + 1)
+    Some(top as i32 + 1)
 }
 
 /// `DiskFeature.place` + `placeColumn`. Radius via UniformInt.
@@ -1255,6 +1257,13 @@ fn is_base_stone(b: BlockId) -> bool {
 
 /// `OreFeature.place` heightmap gate: first column with
 /// `minY <= getHeight(OCEAN_FLOOR_WG, x, z)` → allow `doPlace`.
+///
+/// The map read is [`RegionBuf::ocean_floor_frozen_at`] — the post-carver
+/// snapshot, NOT the `heightmaps` plane (which is a "not air/fluid" scan: it
+/// counts `powder_snow` and other non-motion blocks as the column top).
+/// Witness: seed 424242 column (-194,-163) — ref sand y58-61,
+/// `disk_sand`'s placement read a y one block too high and its
+/// `matching_fluids water` filter then failed.
 fn ocean_floor_wg_allows_ore(
     region: &RegionBuf,
     start_x: i32,

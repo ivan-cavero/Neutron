@@ -492,7 +492,7 @@ Worldgen 1:1 vs vanilla **26.2**. Meter = `region_parity` + `PARITY_SCAN=1`
 | Measurement | Value |
 | **GATE6 full 30-seed ratchet** (iceberg extension 505a2ad) | mean **99.4493%**, 15/30 ≥99.5%, 28/30 ≥99.0%, **net −1,070,399 vs gate5, 0 regressions** |
 | gate6 movers | 55555 −903,023 (99.5636%) · 123 −167,376 (99.4790%); all other 28 seeds bit-identical |
-| seed **424242** (primary) | **98.9693%** / 531,943 (snow + noise_threshold fixes) |
+| seed **424242** (primary) | **98.9704%** / 531,387 (snow + noise_threshold + OFWG fixes) |
 | seed **456** | **98.9188%** / 560,137 (stream-desync symptoms only) |
 | seed **777** | **99.2797%** / 373,153 |
 | seed **55555** | **99.5636%** / 225,209 (berg gap closed) |
@@ -523,9 +523,26 @@ Also un-conflated `BlockId::Snow` (=snow_block, solid/motion) from the
 layer across `blocks_motion`, carvers, decorators, multiface, and iceberg
 carve. 3 regression tests vs real jar ground truth.
 
-Combined: **534,440 → 531,943 (−2,497)**; powder-snow family 1,299 → 4
-cells; freeze_top_layer writer 431 → 323. Ratchet: 12345 window 99.39% and
-777 window 99.78% — bit-identical to their pre-fix baselines.
+**OCEAN_FLOOR_WG GATE FIXED (16 Sep)**: the ore/disk
+`ocean_floor_wg_first_available` read `RegionBuf.heightmaps`, which
+`generate_noise_and_surface` fills with a "not air/fluid" scan — the
+WORLD_SURFACE predicate, not `blocksMotion`. It counted `powder_snow` (and
+other non-motion blocks) as the column top, so `disk_sand`'s
+OCEAN_FLOOR_WG placement picked a y one block too high and its
+`matching_fluids water` filter then failed. Fix: read the frozen
+post-carver snapshot (`ocean_floor_frozen`, `blocksMotion` predicate).
+Witness: seed 424242 column (-194,-163) — ref sand y58-61, was dirt; now
+matches. A live-read variant was MEASURED and REVERTED (531,943 → 638,330,
++106k): vanilla's heightmaps are per-chunk, so a shared live region map lets
+earlier origins' spillover move later origins' gates — the frozen snapshot
+is the correct semantics.
+
+Combined: **534,440 → 531,387 (−3,053)**; powder-snow family 1,299 → 4
+cells; sand→dirt 419 → 17; freeze_top_layer writer 431 → 323. Ratchet: 12345
+window 99.39% bit-identical to baseline; 777 window 99.77% vs 99.78% baseline
+(one chunk −49 cells of deterministic coal-ore blob displacement, offset by
++76 fixed cells elsewhere in the same chunk — the ore gate now reads the
+frozen post-carver map, see below).
 
 ## Closed (git log has full evidence)
 
