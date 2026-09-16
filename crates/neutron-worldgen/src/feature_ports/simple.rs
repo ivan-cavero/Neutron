@@ -418,6 +418,9 @@ pub(crate) fn place_monster_room(
     y: i32,
     z: i32,
 ) {
+    // NEUTRON_MONSTER_TRACE=1 — attempt/verdict trace (diagnostic).
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let trace = *TRACE.get_or_init(|| std::env::var_os("NEUTRON_MONSTER_TRACE").is_some());
     let xr = rng.next_int(2) + 2;
     let zr = rng.next_int(2) + 2;
     let min_x = -xr - 1;
@@ -430,9 +433,15 @@ pub(crate) fn place_monster_room(
             for dz in min_z..=max_z {
                 let solid_b = blocks_motion(region.get(x + dx, y + dy, z + dz));
                 if dy == -1 && !solid_b {
+                    if trace {
+                        eprintln!("MONSTER {x} {y} {z} reject floor_air");
+                    }
                     return;
                 }
                 if dy == 4 && !solid_b {
+                    if trace {
+                        eprintln!("MONSTER {x} {y} {z} reject roof_air");
+                    }
                     return;
                 }
                 if (dx == min_x || dx == max_x || dz == min_z || dz == max_z)
@@ -446,10 +455,19 @@ pub(crate) fn place_monster_room(
         }
     }
     if !(1..=5).contains(&hole_count) {
+        if trace {
+            eprintln!("MONSTER {x} {y} {z} reject holes={hole_count}");
+        }
         return;
     }
+    if trace {
+        eprintln!("MONSTER {x} {y} {z} ACCEPT holes={hole_count} xr={xr} zr={zr}");
+    }
     for dx in min_x..=max_x {
-        for dy in (3..=-1).rev() {
+        // Vanilla: `for (int dy = 3; dy >= -1; dy--)`. NOTE: `(3..=-1)` is an
+        // EMPTY RangeInclusive in Rust, so the descending form must be written
+        // as the ascending range reversed.
+        for dy in (-1..=3).rev() {
             for dz in min_z..=max_z {
                 let is_wall = dx == min_x
                     || dy == -1
@@ -563,5 +581,63 @@ mod snow_tests {
         assert!(snow_layer_can_survive(BlockId::SoulSand));
         assert!(!snow_layer_can_survive(BlockId::Water));
         assert!(!snow_layer_can_survive(BlockId::Air));
+    }
+}
+
+#[cfg(test)]
+mod monster_room_tests {
+    use super::*;
+
+    /// `MonsterRoomFeature.place` must build the full room: cobblestone/
+    /// mossy_cobblestone walls on the `xr`/`zr` ring, a solid floor at
+    /// `dy == -1`, a solid roof at `dy == 4`, cave_air interior, and a
+    /// spawner at the origin. The wall loop is
+    /// `for (int dy = 3; dy >= -1; dy--)` — a `(3..=-1).rev()` port is an
+    /// EMPTY `RangeInclusive` in Rust and silently built nothing (no walls, no
+    /// interior, no spawner), which is what let the ref's dungeons diverge.
+    #[test]
+    fn builds_walls_interior_and_spawner() {
+        let mut region = RegionBuf::new(0, 0, 0);
+        let seed = 12345i64;
+        // Learn the room half-extents the way the feature will draw them, so
+        // the single carved pocket lands exactly on the wall ring (dx=min_x).
+        let mut probe = FeatureRandom::new(seed);
+        let xr = probe.next_int(2) + 2;
+        let min_x = -xr - 1;
+        let oy = 64;
+        // Solid box covering dy -1..=4 (y oy-1 ..= oy+4) with margin.
+        for y in oy - 1..=oy + 4 {
+            for z in 1..=13 {
+                for x in 1..=13 {
+                    region.set(x, y, z, BlockId::Deepslate);
+                }
+            }
+        }
+        // One 2-tall pocket on the ring at dy=0 → hole count 1 (vanilla's
+        // accepted window is 1..=5).
+        region.set(7 + min_x, oy, 7, BlockId::Air);
+        region.set(7 + min_x, oy + 1, 7, BlockId::Air);
+
+        let mut rng = FeatureRandom::new(seed);
+        place_monster_room(&mut rng, &mut region, 7, oy, 7);
+
+        assert_eq!(region.get(7, oy, 7), BlockId::Spawner, "spawner at origin");
+        let mut walls = 0u32;
+        let mut interior = 0u32;
+        for dy in -1..=4i32 {
+            for dz in 1..=13i32 {
+                for dx in 1..=13i32 {
+                    let b = region.get(dx, oy + dy, dz);
+                    if matches!(b, BlockId::Cobblestone | BlockId::MossyCobblestone) {
+                        walls += 1;
+                    }
+                    if dy == 0 && b == BlockId::CaveAir {
+                        interior += 1;
+                    }
+                }
+            }
+        }
+        assert!(walls > 20, "room walls placed (got {walls})");
+        assert!(interior > 10, "room interior carved (got {interior})");
     }
 }

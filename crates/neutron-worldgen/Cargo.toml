@@ -136,6 +136,9 @@ name = "raw_density"
 name = "dofill_cells"
 
 [[example]]
+name = "dungeon_pair_dump"
+
+[[example]]
 name = "carve_y_dump"
 
 [[example]]

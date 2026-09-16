@@ -492,11 +492,37 @@ Worldgen 1:1 vs vanilla **26.2**. Meter = `region_parity` + `PARITY_SCAN=1`
 | Measurement | Value |
 | **GATE6 full 30-seed ratchet** (iceberg extension 505a2ad) | mean **99.4493%**, 15/30 ≥99.5%, 28/30 ≥99.0%, **net −1,070,399 vs gate5, 0 regressions** |
 | gate6 movers | 55555 −903,023 (99.5636%) · 123 −167,376 (99.4790%); all other 28 seeds bit-identical |
-| seed **424242** (primary) | **98.9864%** / 523,139 (snow + noise + OFWG + mushroom fixes) |
+| seed **424242** (primary) | **520,170 mismatches** (dungeon fix; 3,366 fixed / 397 new) |
+| seed **12345** | **99.20% ALL / 99.23% CORE** (dungeon fix) |
+| seed **777** | **99.29% ALL / 99.30% CORE** (dungeon fix) |
 | seed **456** | **98.9188%** / 560,137 (stream-desync symptoms only) |
-| seed **777** | **99.2797%** / 373,153 |
 | seed **55555** | **99.5636%** / 225,209 (berg gap closed) |
 | best seed **44444** | **99.8575%** / 73,409 |
+
+**MONSTER ROOM (DUNGEON) FIXED (16 Sep)**: two independent bugs, both in
+the step-3 underground-structure path.
+(1) `place_monster_room`'s wall/interior loop was
+`for dy in (3..=-1).rev()` — an `INVERTED` `RangeInclusive`, which is
+**empty** in Rust, so the room body (walls, cave_air interior, chests,
+spawner) was never written at all. Vanilla is `for (dy = 3; dy >= -1; dy--)`;
+fixed to `(-1..=3).rev()`. A repo-wide scan found no other inverted literal
+range.
+(2) The step-3 mineshaft `postProcess` ran AFTER the step-3 features, but
+`ChunkGenerator.applyBiomeDecoration` (ChunkGenerator.java:343-364) places
+every structure whose `Structure.step()` matches the current step BEFORE that
+step's features (`mineshaft.json` = `"step": "underground_structures"`). The
+order is load-bearing: `MonsterRoomFeature.place` requires 1..=5 "holes"
+(ring cells at dy=0 with air above) and the mineshaft corridors are what
+create them. Two-sided dump (chunk (5,1), the 9x9x5 room at x 91..95,
+y -18..-14, z 22..28): mine 291 mismatches → 35; the gate trace flipped from
+`MONSTER 94 -17 25 reject holes=0` to `ACCEPT holes=5`. The mineshaft RNG
+stream is independent (`setFeatureSeed(dec, 1, 3)`), so the move cannot
+desync a later step.
+Full 424242 scan: ledger **523,139 → 520,170**; 3,366 cells fixed (1,614
+dungeon-signature) against **397** new mismatches (spillover where a now-placed
+room overwrites a neighbour origin's later pass). The 397 are inside the parked
+order cascade and the family is no longer one-directional.
+**Ratchet 12345 / 777 also improved** (99.20% ALL / 99.29% ALL).
 
 **SURFACE-RULE noise_threshold SAMPLING FIXED (16 Sep)**: vanilla
 `NoiseThresholdConditionSource` samples 2D noises at `(blockX, 0.0, blockZ)`

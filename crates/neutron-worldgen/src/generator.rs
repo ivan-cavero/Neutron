@@ -81,6 +81,22 @@ pub fn decorate_region_origin_major(
             "plains",
         );
         let t_local = ts2.elapsed().as_millis();
+        // Step 3 structures FIRST — `ChunkGenerator.applyBiomeDecoration`
+        // (ChunkGenerator.java:343-364) places every structure whose
+        // `Structure.step()` matches the current step BEFORE that step's
+        // features; mineshaft.json declares `"step":
+        // "underground_structures"`. The order is load-bearing for the SCENE:
+        // `MonsterRoomFeature.place` counts "holes" (ring cells at dy=0 whose
+        // cell AND the cell above are air) and requires 1..=5 — the mineshaft
+        // corridors carved by the same origin are what create those holes.
+        // Running the step-3 features first rejected the room on seed 424242
+        // (chunk (5,1), origin (94,-17,25): `reject holes=0`) while the ref
+        // has the full 9x9x5 room; the mineshaft RNG stream is independent
+        // (`setFeatureSeed(dec, 1, 3)` vs the features' sorter indices), so
+        // the move cannot desync any later step's stream.
+        region.current_writer = crate::writers::MINESHAFT;
+        crate::mineshaft::apply_mineshafts_origin(region, state, ox0, oz0);
+        region.current_writer = crate::writers::TERRAIN;
         // Step 3 — underground structures (monster rooms / fossils).
         let ts3 = std::time::Instant::now();
         crate::feature_dispatch::apply_step_origin(
@@ -93,12 +109,6 @@ pub fn decorate_region_origin_major(
             "plains",
         );
         let t_ustr = ts3.elapsed().as_millis();
-        // Step 3 structures — mineshaft pieces (vanilla placeInChunk runs in
-        // the same decoration loop, after the step-3 features' seeds are set;
-        // the mineshaft RNG stream is separate: setFeatureSeed(dec, 1, 3)).
-        region.current_writer = crate::writers::MINESHAFT;
-        crate::mineshaft::apply_mineshafts_origin(region, state, ox0, oz0);
-        region.current_writer = crate::writers::TERRAIN;
         // Step 4 — SURFACE_STRUCTURES: ruined portal complexes (vanilla runs
         // structure pieces interleaved per decoration step, before the step's
         // features; anchor chunks place their own complex). Plans were frozen
